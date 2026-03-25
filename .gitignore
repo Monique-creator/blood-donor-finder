@@ -1,0 +1,16 @@
+# API keys - never commit this file
+config.js
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/
+
+# Node modules if added later
+node_modules/
+
+# Log files
+*.log

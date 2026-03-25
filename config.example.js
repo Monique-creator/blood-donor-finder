@@ -1,0 +1,3 @@
+const CONFIG = {
+  OPENFDA_API_KEY: "YOUR_OPENFDA_KEY_HERE"
+};

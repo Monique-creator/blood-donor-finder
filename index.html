@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BloodLink - Blood Donor Finder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- TOP HEADER -->
+  <header class="topnav">
+    <div class="topnav-inner">
+      <div class="logo">
+        <span class="logo-drop"></span>
+        <span class="logo-text">BloodLink</span>
+      </div>
+      <div class="search-wrap">
+        <input type="text" id="search-name" class="global-search" placeholder="Search donors by name, city, or blood type...">
+        <button class="search-btn" id="apply-filters">Search</button>
+      </div>
+    </div>
+
+    <!-- PAGE TABS -->
+    <div class="tabs-bar">
+      <div class="tabs-inner">
+        <button class="tab active" data-page="dashboard">Dashboard</button>
+        <button class="tab" data-page="find">Find Donors</button>
+        <button class="tab" data-page="emergency">Emergency</button>
+        <button class="tab" data-page="register">Register</button>
+        <button class="tab" data-page="eligibility">Am I Eligible?</button>
+        <button class="tab" data-page="tracker">Donation Tracker</button>
+        <button class="tab" data-page="safety">FDA Safety</button>
+        <button class="tab" data-page="compat">Compatibility</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <div class="content-wrap">
+
+    <!-- DASHBOARD -->
+    <div class="page active" id="page-dashboard">
+      <div class="section-head">
+        <h2>Dashboard Overview</h2>
+        <button class="btn-primary" data-page="register">+ Register as Donor</button>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat-card accent">
+          <div class="stat-label">Total Donors</div>
+          <div class="stat-num" id="stat-total">0</div>
+        </div>
+        <div class="stat-card dark">
+          <div class="stat-label">Available Now</div>
+          <div class="stat-num" id="stat-available">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Countries</div>
+          <div class="stat-num" id="countries-count">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Blood Types</div>
+          <div class="stat-num">8</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head">Donors by Blood Type</div>
+          <div id="bt-bars"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">Recent Registrations</div>
+          <div id="recent-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FIND DONORS -->
+    <div class="page" id="page-find">
+      <div class="section-head">
+        <h2 id="results-heading">All Donors</h2>
+        <span class="results-count" id="results-count"></span>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="filter-bar">
+        <div class="filter-group">
+          <label>Blood Type</label>
+          <select id="filter-blood-type">
+            <option value="">All Types</option>
+            <option>A+</option><option>A-</option>
+            <option>B+</option><option>B-</option>
+            <option>AB+</option><option>AB-</option>
+            <option>O+</option><option>O-</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Country</label>
+          <select id="filter-country">
+            <option value="">All Countries</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Availability</label>
+          <select id="filter-available">
+            <option value="">All</option>
+            <option value="yes">Available Now</option>
+            <option value="no">Not Available</option>
+          </select>
+        </div>
+        <div class="filter-actions">
+          <button class="btn-outline" id="clear-filters">Clear Filters</button>
+        </div>
+      </div>
+
+      <!-- Sort chips -->
+      <div class="sort-bar">
+        <span class="sort-label">Sort by:</span>
+        <button class="chip active" data-sort="name">Name</button>
+        <button class="chip" data-sort="bloodType">Blood Type</button>
+        <button class="chip" data-sort="country">Country</button>
+      </div>
+
+      <div class="cards-grid" id="donor-grid"></div>
+
+      <div class="state-box hidden" id="empty-state">
+        <p>No donors match your search. Try different filters.</p>
+      </div>
+      <div class="state-box hidden" id="loading-state">
+        <div class="spinner"></div>
+        <p>Loading donors...</p>
+      </div>
+    </div>
+
+    <!-- EMERGENCY REQUEST -->
+    <div class="page" id="page-emergency">
+      <div class="section-head">
+        <h2>Emergency Blood Requests</h2>
+        <span class="badge-urgent">Live</span>
+      </div>
+
+      <div class="cards-grid" id="emergency-board"></div>
+
+      <div class="panel" style="margin-top: 28px;">
+        <div class="panel-head">Post a New Emergency Request</div>
+        <form id="emergency-form" class="form-grid">
+          <div class="field">
+            <label>Patient Name *</label>
+            <input type="text" id="emg-patient" placeholder="Full name">
+            <span class="err" id="err-emg-patient"></span>
+          </div>
+          <div class="field">
+            <label>Blood Type Needed *</label>
+            <select id="emg-blood">
+              <option value="">Select type</option>
+              <option>A+</option><option>A-</option>
+              <option>B+</option><option>B-</option>
+              <option>AB+</option><option>AB-</option>
+              <option>O+</option><option>O-</option>
+            </select>
+            <span class="err" id="err-emg-blood"></span>
+          </div>
+          <div class="field">
+            <label>Hospital / Location *</label>
+            <input type="text" id="emg-hospital" placeholder="e.g. CHUK Hospital, Kigali">
+            <span class="err" id="err-emg-hospital"></span>
+          </div>
+          <div class="field">
+            <label>Units Needed *</label>
+            <input type="number" id="emg-units" placeholder="e.g. 2" min="1" max="20">
+            <span class="err" id="err-emg-units"></span>
+          </div>
+          <div class="field">
+            <label>Contact Number *</label>
+            <input type="tel" id="emg-contact" placeholder="+250 700 000 000">
+            <span class="err" id="err-emg-contact"></span>
+          </div>
+          <div class="field">
+            <label>Additional Notes</label>
+            <input type="text" id="emg-note" placeholder="Any extra information for donors">
+          </div>
+          <div class="field field-full">
+            <button type="submit" class="btn-primary">Post Emergency Request</button>
+            <div class="feedback hidden" id="emg-feedback"></div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- REGISTER -->
+    <div class="page" id="page-register">
+      <div class="section-head">
+        <h2>Register as a Blood Donor</h2>
+      </div>
+
+      <div class="register-layout">
+        <div class="info-side">
+          <div class="info-block">
+            <div class="info-num accent-num">01</div>
+            <div>
+              <h4>Save up to 3 lives</h4>
+              <p>One blood donation can help up to three different patients in need.</p>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="info-num green-num">02</div>
+            <div>
+              <h4>You stay in control</h4>
+              <p>Mark yourself unavailable whenever you need to. You choose when to donate.</p>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="info-num blue-num">03</div>
+            <div>
+              <h4>Worldwide network</h4>
+              <p>Donors from over 190 countries are registered on BloodLink.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">Donor Details</div>
+          <form id="register-form" class="form-grid">
+            <div class="field">
+              <label>Full Name *</label>
+              <input type="text" id="reg-name" placeholder="Jane Doe">
+              <span class="err" id="err-name"></span>
+            </div>
+            <div class="field">
+              <label>Age *</label>
+              <input type="number" id="reg-age" placeholder="25" min="18" max="65">
+              <span class="err" id="err-age"></span>
+            </div>
+            <div class="field">
+              <label>Blood Type *</label>
+              <select id="reg-blood-type">
+                <option value="">Select type</option>
+                <option>A+</option><option>A-</option>
+                <option>B+</option><option>B-</option>
+                <option>AB+</option><option>AB-</option>
+                <option>O+</option><option>O-</option>
+              </select>
+              <span class="err" id="err-blood"></span>
+            </div>
+            <div class="field">
+              <label>Country *</label>
+              <select id="reg-country">
+                <option value="">Select country</option>
+              </select>
+              <span class="err" id="err-country"></span>
+            </div>
+            <div class="field">
+              <label>City *</label>
+              <input type="text" id="reg-city" placeholder="Kigali">
+              <span class="err" id="err-city"></span>
+            </div>
+            <div class="field">
+              <label>Phone *</label>
+              <input type="tel" id="reg-phone" placeholder="+250 700 000 000">
+              <span class="err" id="err-phone"></span>
+            </div>
+            <div class="field field-full">
+              <label>Available to donate now?</label>
+              <label class="toggle">
+                <input type="checkbox" id="reg-available" checked>
+                <span class="track"><span class="thumb"></span></span>
+                <span id="toggle-text">Yes, I am available</span>
+              </label>
+            </div>
+            <div class="field field-full">
+              <button type="submit" class="btn-primary">Register as Donor</button>
+              <div class="feedback hidden" id="reg-feedback"></div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ELIGIBILITY -->
+    <div class="page" id="page-eligibility">
+      <div class="section-head">
+        <h2>Am I Eligible to Donate?</h2>
+      </div>
+
+      <div class="elig-layout">
+        <div class="panel">
+          <div class="panel-head">Answer these questions</div>
+          <form id="eligibility-form">
+            <div class="elig-q">
+              <label>How old are you?</label>
+              <input type="number" id="elig-age" placeholder="Your age">
+            </div>
+            <div class="elig-q">
+              <label>How much do you weigh? (kg)</label>
+              <input type="number" id="elig-weight" placeholder="Weight in kg">
+            </div>
+            <div class="elig-q">
+              <label>Are you feeling well today — no fever or cold?</label>
+              <div class="radio-group">
+                <label class="radio-opt"><input type="radio" name="elig-well" value="yes"> Yes, I feel fine</label>
+                <label class="radio-opt"><input type="radio" name="elig-well" value="no"> No, I am not well</label>
+              </div>
+            </div>
+            <div class="elig-q">
+              <label>Have you donated whole blood in the last 56 days?</label>
+              <div class="radio-group">
+                <label class="radio-opt"><input type="radio" name="elig-donated" value="no"> No, it has been longer</label>
+                <label class="radio-opt"><input type="radio" name="elig-donated" value="yes"> Yes, within 56 days</label>
+              </div>
+            </div>
+            <div class="elig-q">
+              <label>Have you had a tattoo or piercing in the last 3 months?</label>
+              <div class="radio-group">
+                <label class="radio-opt"><input type="radio" name="elig-tattoo" value="no"> No</label>
+                <label class="radio-opt"><input type="radio" name="elig-tattoo" value="yes"> Yes</label>
+              </div>
+            </div>
+            <div class="elig-q">
+              <label>Are you pregnant or gave birth in the last 6 months?</label>
+              <div class="radio-group">
+                <label class="radio-opt"><input type="radio" name="elig-pregnant" value="no"> No</label>
+                <label class="radio-opt"><input type="radio" name="elig-pregnant" value="yes"> Yes</label>
+              </div>
+            </div>
+            <div class="elig-q">
+              <label>Are you currently taking antibiotics or blood thinners?</label>
+              <div class="radio-group">
+                <label class="radio-opt"><input type="radio" name="elig-meds" value="no"> No</label>
+                <label class="radio-opt"><input type="radio" name="elig-meds" value="yes"> Yes</label>
+              </div>
+            </div>
+            <button type="submit" class="btn-primary" style="margin-top: 8px; width: 100%;">Check My Eligibility</button>
+          </form>
+        </div>
+
+        <div class="panel hidden" id="elig-result">
+          <div class="panel-head">Your Result</div>
+          <div class="result-icon" id="result-icon"></div>
+          <h3 id="result-title" style="margin: 12px 0 10px; font-size: 1.1rem;"></h3>
+          <p id="result-body" style="font-size: 0.87rem; color: #555; margin-bottom: 12px;"></p>
+          <ul id="result-reasons" class="result-reasons"></ul>
+          <p class="result-note">This is a general guide only. Always confirm with a blood bank before donating.</p>
+          <button class="btn-outline" id="elig-reset" style="margin-top: 16px; width: 100%;">Check Again</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DONATION TRACKER -->
+    <div class="page" id="page-tracker">
+      <div class="section-head">
+        <h2>Donation Tracker</h2>
+      </div>
+
+      <div class="tracker-top">
+        <div class="panel">
+          <div class="panel-head">Log a Donation</div>
+          <form id="tracker-form" class="form-grid">
+            <div class="field">
+              <label>Donation Date *</label>
+              <input type="date" id="track-date">
+              <span class="err" id="err-track-date"></span>
+            </div>
+            <div class="field">
+              <label>Donation Type</label>
+              <select id="track-type">
+                <option>Whole Blood</option>
+                <option>Platelets</option>
+                <option>Plasma</option>
+                <option>Double Red Cells</option>
+              </select>
+            </div>
+            <div class="field field-full">
+              <label>Donation Center</label>
+              <input type="text" id="track-location" placeholder="e.g. CHUK Blood Bank, Kigali">
+            </div>
+            <div class="field field-full">
+              <button type="submit" class="btn-primary">Log Donation</button>
+              <div class="feedback hidden" id="track-feedback"></div>
+            </div>
+          </form>
+        </div>
+
+        <div class="eligible-panel" id="eligible-card">
+          <div class="eligible-label">Next Eligible Date</div>
+          <div class="eligible-date" id="eligible-date">No donations logged</div>
+          <div class="eligible-sub" id="eligible-sub"></div>
+          <div class="hidden" id="eligible-bar-wrap">
+            <div class="prog-track"><div class="prog-fill" id="eligible-bar"></div></div>
+            <div class="prog-labels">
+              <span>Last donation</span>
+              <span id="bar-end"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top: 20px;">
+        <div class="panel-head">Donation History</div>
+        <div id="tracker-history"></div>
+      </div>
+    </div>
+
+    <!-- FDA SAFETY -->
+    <div class="page" id="page-safety">
+      <div class="section-head">
+        <h2>FDA Blood Product Safety Notices</h2>
+        <span class="badge-live">Live FDA Data</span>
+      </div>
+
+      <div class="panel" style="margin-bottom: 20px;">
+        <div class="fda-row">
+          <input type="text" id="fda-input" class="fda-input" placeholder="Search notices — try: blood, plasma, platelets...">
+          <button class="btn-primary" id="fda-btn">Search FDA</button>
+        </div>
+        <p class="fda-note">Data from <a href="https://open.fda.gov" target="_blank">OpenFDA</a> — U.S. Food and Drug Administration public API.</p>
+      </div>
+
+      <div class="state-box hidden" id="fda-loading">
+        <div class="spinner"></div>
+        <p>Fetching live data from FDA...</p>
+      </div>
+
+      <div class="cards-grid hidden" id="fda-grid"></div>
+
+      <div class="state-box hidden" id="fda-empty">
+        <p>No notices found. Try "blood", "plasma", or "platelets".</p>
+      </div>
+
+      <div class="panel err-panel hidden" id="fda-error">
+        <p id="fda-err-msg">Could not load FDA data. Check your API key in config.js.</p>
+      </div>
+    </div>
+
+    <!-- COMPATIBILITY -->
+    <div class="page" id="page-compat">
+      <div class="section-head">
+        <h2>Blood Type Compatibility Guide</h2>
+      </div>
+      <div class="cards-grid" id="compatibility-grid"></div>
+    </div>
+
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast hidden" id="toast"><span id="toast-msg"></span></div>
+
+  <script src="config.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
