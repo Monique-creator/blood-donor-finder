@@ -4,7 +4,7 @@
 :root {
   --accent:  #4f46e5;
   --accent2: #6366f1;
-  --red:     #e63946;
+  --red:     #e6be39;
   --dark:    #111827;
   --white:   #ffffff;
   --bg:      #f3f4f6;
@@ -12,7 +12,7 @@
   --text:    #111827;
   --muted:   #6b7280;
   --green:   #059669;
-  --amber:   #d97706;
+  --amber:   #abd906;
   --blue:    #2563eb;
   --font:    'Nunito', sans-serif;
 }
