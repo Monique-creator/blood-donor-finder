@@ -1,6 +1,6 @@
 // app.js — navigation, API calls, page rendering, event listeners
 
-// ── THEME ──────────────────────────────────────────────────
+// ── THEME 
 function setupTheme() {
   const saved = db_get("theme") || "light";
   document.documentElement.setAttribute("data-theme", saved);
@@ -14,7 +14,7 @@ function setupTheme() {
 }
 function updateThemeIcon(t) { const b = el("theme-btn"); if (b) b.textContent = t === "dark" ? "Light Mode" : "Dark Mode"; }
 
-// ── NAVIGATION ─────────────────────────────────────────────
+// ── NAVIGATION 
 function showPage(id) {
   document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
   const page = el("page-" + id);
@@ -22,7 +22,7 @@ function showPage(id) {
   window.scrollTo({ top:0, behavior:"smooth" });
 }
 
-// ── HEADER ─────────────────────────────────────────────────
+// ── HEADER 
 function updateHeader() {
   const user   = getCurrentUser();
   const userEl = el("nav-user");
@@ -43,7 +43,7 @@ function updateHeader() {
   }
 }
 
-// ── AUTH MODAL ─────────────────────────────────────────────
+// ── AUTH MODAL 
 function openAuthModal() {
   el("auth-modal").classList.remove("hidden");
   switchAuthTab("login");
@@ -95,7 +95,7 @@ function setupAuthModal() {
   });
 }
 
-// ── REST COUNTRIES API ─────────────────────────────────────
+// ── REST COUNTRIES API
 // Populates every country dropdown from restcountries.com
 // Falls back to a full built-in list if API is unreachable
 
@@ -153,7 +153,7 @@ async function loadCountries() {
   }
 }
 
-// ── OPENFDA API ────────────────────────────────────────────
+// ── OPENFDA API 
 async function fetchFDA(keyword) {
   const grid    = el("fda-grid");
   const loading = el("fda-loading");
@@ -202,14 +202,14 @@ async function fetchFDA(keyword) {
   }
 }
 
-// ── STATS ──────────────────────────────────────────────────
+// ── STATS 
 function updateStats() {
   const donors = getDonors();
   setText("stat-total",     donors.length);
   setText("stat-available", donors.filter(d => d.available).length);
 }
 
-// ── COMPATIBILITY ─────────────────────────────────────────
+// ── COMPATIBILITY 
 // Renders 8 blood type cards — runs on init, visible when page opens
 function renderCompat() {
   const grid = el("compat-grid");
@@ -228,7 +228,7 @@ function renderCompat() {
   });
 }
 
-// ── BLOOD REQUESTS ─────────────────────────────────────────
+// ── BLOOD REQUESTS 
 function renderRequests() {
   const board = el("requests-board");
   if (!board) return;
@@ -269,7 +269,7 @@ function handlePostRequest(e) {
   document.getElementById("request-form").reset();
 }
 
-// ── REGISTER DONOR ─────────────────────────────────────────
+// ── REGISTER DONOR 
 function handleRegister(e) {
   e.preventDefault();
   const checks = [
@@ -303,7 +303,7 @@ function handleRegister(e) {
   showToast("Registration successful!");
 }
 
-// ── ELIGIBILITY ────────────────────────────────────────────
+// ── ELIGIBILITY 
 function handleEligibility(e) {
   e.preventDefault();
   const age      = parseInt(el("elig-age").value, 10);
@@ -338,7 +338,7 @@ function handleEligibility(e) {
   el("elig-result").classList.remove("hidden");
 }
 
-// ── TRACKER ────────────────────────────────────────────────
+// ── TRACKER 
 function renderTracker() {
   const log    = getDonationLog();
   const histEl = el("tracker-history");
@@ -398,7 +398,7 @@ function handleTracker(e) {
   document.getElementById("tracker-form").reset();
 }
 
-// ── ADMIN TABS ─────────────────────────────────────────────
+// ── ADMIN TABS 
 function setupAdminTabs() {
   document.querySelectorAll(".admin-tab").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -411,7 +411,7 @@ function setupAdminTabs() {
   });
 }
 
-// ── HELPERS ────────────────────────────────────────────────
+// ── HELPERS 
 function showToast(msg) {
   const t = el("toast");
   el("toast-msg").textContent = msg;
@@ -424,7 +424,7 @@ function showFeedback(id, msg, type) {
   setTimeout(() => e.classList.add("hidden"), 6000);
 }
 
-// ── GLOBAL CLICK HANDLER ───────────────────────────────────
+// ── GLOBAL CLICK HANDLER 
 document.addEventListener("click", e => {
   const t      = e.target.closest("[data-action]") || e.target;
   const action = t.dataset.action;
@@ -439,15 +439,15 @@ document.addEventListener("click", e => {
   }
 });
 
-// ── INIT ───────────────────────────────────────────────────
+// INIT 
 async function init() {
   // 1. Apply theme before anything renders
   setupTheme();
 
-  // 2. Load session (restores login state)
+  // 2. Load session 
   loadSession();
 
-  // 3. Load donor data — getDonors() saves seeds on first visit
+  // 3. Load donor data 
   initDonors();
 
   // 4. Set up UI components
@@ -458,7 +458,7 @@ async function init() {
   // 5. Update stats immediately with loaded donor data
   updateStats();
 
-  // 6. Render all static sections (compat, requests, tracker, donors)
+  // 6. Render all static sections 
   renderCompat();
   renderRequests();
   renderTracker();
@@ -467,9 +467,8 @@ async function init() {
   // 7. Render admin panel if already logged in as admin
   if (isAdmin()) renderAdminPanel();
 
-  // 8. Load countries — fills dropdowns (fallback applied instantly, API replaces it)
-  loadCountries(); // intentionally NOT awaited so rest of init is not blocked
-
+  // 8. Load countries
+  loadCountries(); 
   // 9. Global search
   el("global-search-btn").addEventListener("click", () => {
     const val = el("global-search").value.trim();
