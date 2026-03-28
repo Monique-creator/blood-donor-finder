@@ -1,628 +1,221 @@
-// BloodLink - Blood Donor Finder
-// Two external APIs:
-//   1. REST Countries API  https://restcountries.com  (no key needed)
-//   2. OpenFDA API         https://open.fda.gov       (free key in config.js)
+// app.js — navigation, API calls, page rendering, event listeners
 
-const COUNTRIES_API = "https://restcountries.com/v3.1/all?fields=name,cca2";
-const FDA_API       = "https://api.fda.gov/drug/enforcement.json";
+// ── THEME ──────────────────────────────────────────────────
+function setupTheme() {
+  const saved = db_get("theme") || "light";
+  document.documentElement.setAttribute("data-theme", saved);
+  updateThemeIcon(saved);
+  el("theme-btn").addEventListener("click", () => {
+    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    db_set("theme", next);
+    updateThemeIcon(next);
+  });
+}
+function updateThemeIcon(t) { const b = el("theme-btn"); if (b) b.textContent = t === "dark" ? "Light Mode" : "Dark Mode"; }
 
-// Days to wait before donating again, per donation type
-const WAIT = {
-  "Whole Blood":      56,
-  "Platelets":        7,
-  "Plasma":           28,
-  "Double Red Cells": 112
-};
+// ── NAVIGATION ─────────────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  const page = el("page-" + id);
+  if (page) page.classList.add("active");
+  window.scrollTo({ top:0, behavior:"smooth" });
+}
 
-// Blood type compatibility based on Red Cross guidelines
-const COMPAT = [
-  { type: "A+",  donateTo: "A+, AB+",                     receiveFrom: "A+, A-, O+, O-" },
-  { type: "A-",  donateTo: "A+, A-, AB+, AB-",            receiveFrom: "A-, O-" },
-  { type: "B+",  donateTo: "B+, AB+",                     receiveFrom: "B+, B-, O+, O-" },
-  { type: "B-",  donateTo: "B+, B-, AB+, AB-",            receiveFrom: "B-, O-" },
-  { type: "AB+", donateTo: "AB+ only",                    receiveFrom: "All types (Universal Recipient)" },
-  { type: "AB-", donateTo: "AB+, AB-",                    receiveFrom: "AB-, A-, B-, O-" },
-  { type: "O+",  donateTo: "A+, B+, O+, AB+",             receiveFrom: "O+, O-" },
-  { type: "O-",  donateTo: "All types (Universal Donor)", receiveFrom: "O- only" }
-];
-
-// Starting donors so the app has content on first load
-const SEEDS = [
-  { id:1, name:"Amara Diallo",      age:28, bloodType:"O+",  country:"Rwanda",       city:"Kigali",       phone:"+250 788 100 200",  available:true  },
-  { id:2, name:"James Owusu",       age:34, bloodType:"A+",  country:"Ghana",         city:"Accra",        phone:"+233 24 555 6789",  available:true  },
-  { id:3, name:"Fatima Nkosi",      age:25, bloodType:"B-",  country:"South Africa",  city:"Johannesburg", phone:"+27 82 333 4567",   available:false },
-  { id:4, name:"Emmanuel Mensah",   age:31, bloodType:"AB+", country:"Nigeria",       city:"Lagos",        phone:"+234 803 456 7890", available:true  },
-  { id:5, name:"Chloe Andrianaivo", age:27, bloodType:"O-",  country:"Madagascar",    city:"Antananarivo", phone:"+261 32 100 2200",  available:true  },
-  { id:6, name:"Samuel Bekele",     age:22, bloodType:"A-",  country:"Ethiopia",      city:"Addis Ababa",  phone:"+251 91 234 5678",  available:false },
-  { id:7, name:"Grace Mutua",       age:30, bloodType:"B+",  country:"Kenya",         city:"Nairobi",      phone:"+254 711 223 344",  available:true  },
-  { id:8, name:"David Osei",        age:26, bloodType:"AB-", country:"Ghana",         city:"Kumasi",       phone:"+233 20 987 6543",  available:true  }
-];
-
-let allDonors      = [];
-let filteredDonors = [];
-let currentSort    = "name";
-let sortAsc        = true;
-let nextId         = 9;
-
-// DONOR DATA 
-
-function loadDonors() {
-  const saved = localStorage.getItem("bl_donors");
-  if (saved) {
-    allDonors = JSON.parse(saved);
-    nextId = allDonors.reduce((m, d) => Math.max(m, d.id), 0) + 1;
+// ── HEADER ─────────────────────────────────────────────────
+function updateHeader() {
+  const user   = getCurrentUser();
+  const userEl = el("nav-user");
+  const adminLi = el("nav-admin-li");
+  if (user) {
+    userEl.innerHTML =
+      '<span class="nav-username">' + user.name +
+      (user.role === "admin" ? ' <span class="admin-chip">Admin</span>' : "") + '</span>' +
+      '<a href="#" class="nav-link" id="btn-signout">Sign Out</a>';
+    el("btn-signout").addEventListener("click", e => {
+      e.preventDefault(); signOut(); updateHeader(); initDonors(); renderDonors();
+      updateStats(); showPage("home"); showToast("Signed out.");
+    });
+    if (adminLi) adminLi.style.display = user.role === "admin" ? "flex" : "none";
   } else {
-    allDonors = [...SEEDS];
-    saveDonors();
+    userEl.innerHTML = '<a href="#" class="nav-link" data-action="open-auth">Sign In</a>';
+    if (adminLi) adminLi.style.display = "none";
   }
 }
 
-function saveDonors() {
-  localStorage.setItem("bl_donors", JSON.stringify(allDonors));
+// ── AUTH MODAL ─────────────────────────────────────────────
+function openAuthModal() {
+  el("auth-modal").classList.remove("hidden");
+  switchAuthTab("login");
 }
 
-// REST COUNTRIES API 
+function switchAuthTab(tab) {
+  const isLogin = tab === "login";
+  el("auth-form-login").classList.toggle("hidden", !isLogin);
+  el("auth-form-signup").classList.toggle("hidden",  isLogin);
+  el("auth-tab-login").classList.toggle("active",  isLogin);
+  el("auth-tab-signup").classList.toggle("active", !isLogin);
+  el("auth-err").textContent         = "";
+  el("auth-err-signup").textContent  = "";
+}
+
+function setupAuthModal() {
+  el("auth-tab-login").addEventListener("click",  () => switchAuthTab("login"));
+  el("auth-tab-signup").addEventListener("click", () => switchAuthTab("signup"));
+  el("auth-go-signup").addEventListener("click", e => { e.preventDefault(); switchAuthTab("signup"); });
+  el("auth-go-login").addEventListener("click",  e => { e.preventDefault(); switchAuthTab("login"); });
+  el("auth-modal").addEventListener("click", e => { if (e.target === el("auth-modal")) el("auth-modal").classList.add("hidden"); });
+
+  el("btn-login").addEventListener("click", () => {
+    const email = el("login-email").value.trim();
+    const pass  = el("login-password").value;
+    el("auth-err").textContent = "";
+    if (!email || !pass) { el("auth-err").textContent = "Please enter email and password."; return; }
+    const res = signIn(email, pass);
+    if (!res.ok) { el("auth-err").textContent = res.msg; return; }
+    el("auth-modal").classList.add("hidden");
+    updateHeader();
+    if (res.role === "admin") { renderAdminPanel(); showPage("admin"); showToast("Welcome, Admin!"); }
+    else { renderDonors(); updateStats(); showToast("Welcome back, " + getCurrentUser().name + "!"); }
+  });
+
+  el("btn-signup").addEventListener("click", () => {
+    const name  = el("signup-name").value.trim();
+    const email = el("signup-email").value.trim();
+    const pass  = el("signup-password").value;
+    el("auth-err-signup").textContent = "";
+    if (!name)            { el("auth-err-signup").textContent = "Please enter your name."; return; }
+    if (!email)           { el("auth-err-signup").textContent = "Please enter your email."; return; }
+    if (pass.length < 6)  { el("auth-err-signup").textContent = "Password must be at least 6 characters."; return; }
+    const res = signUp(name, email, pass);
+    if (!res.ok) { el("auth-err-signup").textContent = res.msg; return; }
+    el("auth-modal").classList.add("hidden");
+    updateHeader(); renderDonors(); updateStats();
+    showToast("Account created! Welcome, " + getCurrentUser().name + "!");
+  });
+}
+
+// ── REST COUNTRIES API ─────────────────────────────────────
+// Populates every country dropdown from restcountries.com
+// Falls back to a full built-in list if API is unreachable
+
+var COUNTRY_FALLBACK = [
+  "Afghanistan","Albania","Algeria","Angola","Argentina","Armenia","Australia","Austria",
+  "Azerbaijan","Bahrain","Bangladesh","Belgium","Benin","Bolivia","Botswana","Brazil",
+  "Burkina Faso","Burundi","Cambodia","Cameroon","Canada","Chad","Chile","China","Colombia",
+  "Congo","Costa Rica","Croatia","Cuba","Czech Republic","Denmark","Dominican Republic",
+  "DR Congo","Ecuador","Egypt","El Salvador","Eritrea","Ethiopia","Finland","France","Gabon",
+  "Gambia","Georgia","Germany","Ghana","Greece","Guatemala","Guinea","Haiti","Honduras",
+  "Hungary","India","Indonesia","Iran","Iraq","Ireland","Israel","Italy","Ivory Coast",
+  "Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kuwait","Laos","Lebanon","Liberia",
+  "Libya","Madagascar","Malawi","Malaysia","Mali","Mauritania","Mauritius","Mexico",
+  "Moldova","Mongolia","Morocco","Mozambique","Myanmar","Namibia","Nepal","Netherlands",
+  "New Zealand","Nicaragua","Niger","Nigeria","North Korea","Norway","Oman","Pakistan",
+  "Palestine","Panama","Paraguay","Peru","Philippines","Poland","Portugal","Qatar",
+  "Romania","Russia","Rwanda","Saudi Arabia","Senegal","Sierra Leone","Singapore",
+  "Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","Sudan",
+  "Sweden","Switzerland","Syria","Taiwan","Tanzania","Thailand","Togo","Tunisia",
+  "Turkey","Uganda","Ukraine","United Arab Emirates","United Kingdom","United States",
+  "Uruguay","Uzbekistan","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"
+].sort((a,b) => a.localeCompare(b));
+
+function fillCountryDropdowns(list) {
+  const ids = ["filter-country","reg-country","admin-add-country","edit-country"];
+  ids.forEach(id => {
+    const sel = el(id);
+    if (!sel) return;
+    // Clear all options except the first placeholder
+    while (sel.options.length > 1) sel.remove(1);
+    list.forEach(name => {
+      const o = document.createElement("option");
+      o.value = o.textContent = name;
+      sel.appendChild(o);
+    });
+  });
+}
 
 async function loadCountries() {
-  const s1 = document.getElementById("filter-country");
-  const s2 = document.getElementById("reg-country");
+  // Always fill with fallback first so dropdowns are never empty
+  fillCountryDropdowns(COUNTRY_FALLBACK);
+  setText("stat-countries", COUNTRY_FALLBACK.length);
 
   try {
-    const res = await fetch(COUNTRIES_API);
+    const res  = await fetch(COUNTRIES_API);
     if (!res.ok) throw new Error("Status " + res.status);
-
-    const list = (await res.json())
-      .map(c => c.name.common)
-      .sort((a, b) => a.localeCompare(b));
-
-    document.getElementById("countries-count").textContent = list.length;
-    list.forEach(n => { s1.appendChild(mkOpt(n)); s2.appendChild(mkOpt(n)); });
-
-  } catch (e) {
-    // API failed - use a small fallback so the form still works
-    console.warn("Countries API:", e.message);
-    showToast("Country list loaded from local fallback.");
-    const fb = ["Ethiopia","Ghana","Kenya","Madagascar","Nigeria","Rwanda","South Africa","Tanzania","Uganda","Zambia"];
-    fb.forEach(n => { s1.appendChild(mkOpt(n)); s2.appendChild(mkOpt(n)); });
-    document.getElementById("countries-count").textContent = "190+";
+    const data = await res.json();
+    if (!data || !data.length) throw new Error("Empty response");
+    const list = data.map(c => c.name.common).sort((a,b) => a.localeCompare(b));
+    fillCountryDropdowns(list);
+    setText("stat-countries", list.length);
+  } catch(e) {
+    // Fallback already applied — just log the warning
+    console.warn("Countries API unavailable, using built-in list:", e.message);
   }
 }
 
-function mkOpt(val) {
-  const o = document.createElement("option");
-  o.value = o.textContent = val;
-  return o;
-}
-
-// OPENFDA API 
-
+// ── OPENFDA API ────────────────────────────────────────────
 async function fetchFDA(keyword) {
-  const grid    = document.getElementById("fda-grid");
-  const loading = document.getElementById("fda-loading");
-  const empty   = document.getElementById("fda-empty");
-  const errBox  = document.getElementById("fda-error");
-  const errMsg  = document.getElementById("fda-err-msg");
+  const grid    = el("fda-grid");
+  const loading = el("fda-loading");
+  const empty   = el("fda-empty");
+  const errBox  = el("fda-error");
+  const errMsg  = el("fda-err-msg");
 
-  [grid, empty, errBox].forEach(el => el.classList.add("hidden"));
+  [grid, empty, errBox].forEach(e => e.classList.add("hidden"));
   grid.innerHTML = "";
   loading.classList.remove("hidden");
 
-  const q = keyword.trim() || "blood";
-
-  // Check that the user has put a real key in config.js
   if (typeof CONFIG === "undefined" || !CONFIG.OPENFDA_API_KEY || CONFIG.OPENFDA_API_KEY === "YOUR_OPENFDA_KEY_HERE") {
     loading.classList.add("hidden");
-    errMsg.textContent = "No API key found. Open config.js and add your key from https://open.fda.gov/apis/authentication/";
+    errMsg.textContent = "No API key found. Add your free key from https://open.fda.gov/apis/authentication/ to config.js";
     errBox.classList.remove("hidden");
     return;
   }
 
   try {
-    const url = FDA_API + '?search=product_description:"' + encodeURIComponent(q) + '"&limit=10&api_key=' + CONFIG.OPENFDA_API_KEY;
+    const q   = (keyword || "blood").trim();
+    const url = FDA_API + '?search=product_description:"' + encodeURIComponent(q) + '"&limit=9&api_key=' + CONFIG.OPENFDA_API_KEY;
     const res = await fetch(url);
-
-    // 404 from FDA means no results found - not a real error
-    if (res.status === 404) {
-      loading.classList.add("hidden");
-      empty.classList.remove("hidden");
-      return;
-    }
-
-    if (!res.ok) throw new Error("FDA API status " + res.status);
-
+    if (res.status === 404) { loading.classList.add("hidden"); empty.classList.remove("hidden"); return; }
+    if (!res.ok) throw new Error("Status " + res.status);
     const data = await res.json();
     loading.classList.add("hidden");
-
-    if (!data.results || !data.results.length) {
-      empty.classList.remove("hidden");
-      return;
-    }
-
+    if (!data.results || !data.results.length) { empty.classList.remove("hidden"); return; }
     data.results.forEach((item, i) => {
       const c = document.createElement("div");
       c.className = "fda-card";
       c.style.animationDelay = (i * 0.05) + "s";
       c.innerHTML =
         '<span class="fda-status">' + (item.status || "Unknown") + '</span>' +
-        '<div class="fda-title">' + cut(item.product_description || "Unknown product", 100) + '</div>' +
-        '<div class="fda-detail"><strong>Firm:</strong> ' + (item.recalling_firm || "Unknown") + '</div>' +
-        '<div class="fda-detail"><strong>Class:</strong> ' + (item.classification || "N/A") + '</div>' +
-        '<div class="fda-detail"><strong>Date:</strong> ' + (item.recall_initiation_date ? fmtDate(item.recall_initiation_date) : "Unknown") + '</div>' +
-        '<div class="fda-reason"><strong>Reason:</strong> ' + cut(item.reason_for_recall || "Not provided", 200) + '</div>';
+        '<div class="fda-title">' + cut(item.product_description || "Unknown", 90) + '</div>' +
+        '<div class="fda-row"><strong>Firm:</strong> ' + (item.recalling_firm || "Unknown") + '</div>' +
+        '<div class="fda-row"><strong>Class:</strong> ' + (item.classification || "N/A") + '</div>' +
+        '<div class="fda-row"><strong>Date:</strong> ' + (item.recall_initiation_date ? fmtDate(item.recall_initiation_date) : "Unknown") + '</div>' +
+        '<div class="fda-reason"><strong>Reason:</strong> ' + cut(item.reason_for_recall || "Not provided", 180) + '</div>';
       grid.appendChild(c);
     });
-
     grid.classList.remove("hidden");
-
-  } catch (e) {
+  } catch(e) {
     loading.classList.add("hidden");
     errMsg.textContent = "Could not fetch FDA data: " + e.message;
     errBox.classList.remove("hidden");
   }
 }
 
-// DASHBOARD 
-
-function renderDashboard() {
-  document.getElementById("stat-total").textContent     = allDonors.length;
-  document.getElementById("stat-available").textContent = allDonors.filter(d => d.available).length;
-
-  // Blood type bar chart
-  const types  = ["A+","A-","B+","B-","AB+","AB-","O+","O-"];
-  const counts = {};
-  types.forEach(t => counts[t] = 0);
-  allDonors.forEach(d => { if (counts[d.bloodType] !== undefined) counts[d.bloodType]++; });
-  const max = Math.max(...Object.values(counts), 1);
-
-  const barsEl = document.getElementById("bt-bars");
-  barsEl.innerHTML = "";
-  types.forEach(t => {
-    const pct = Math.round((counts[t] / max) * 100);
-    const row = document.createElement("div");
-    row.className = "bt-row";
-    row.innerHTML =
-      '<span class="bt-type">' + t + '</span>' +
-      '<div class="bt-track"><div class="bt-fill" style="width:0" data-w="' + pct + '"></div></div>' +
-      '<span class="bt-num">' + counts[t] + '</span>';
-    barsEl.appendChild(row);
-  });
-
-  setTimeout(() => {
-    document.querySelectorAll(".bt-fill").forEach(b => b.style.width = b.dataset.w + "%");
-  }, 100);
-
-  // Recent registrations (top 5)
-  const recEl = document.getElementById("recent-list");
-  recEl.innerHTML = "";
-  allDonors.slice(0, 5).forEach(d => {
-    const row = document.createElement("div");
-    row.className = "recent-item";
-    row.innerHTML =
-      '<div class="avatar">' + d.name[0] + '</div>' +
-      '<div class="recent-info">' +
-        '<div class="recent-name">' + d.name + '</div>' +
-        '<div class="recent-meta">' + d.city + ', ' + d.country + '</div>' +
-      '</div>' +
-      '<span class="blood-tag">' + d.bloodType + '</span>';
-    recEl.appendChild(row);
-  });
+// ── STATS ──────────────────────────────────────────────────
+function updateStats() {
+  const donors = getDonors();
+  setText("stat-total",     donors.length);
+  setText("stat-available", donors.filter(d => d.available).length);
 }
 
-// DONOR CARDS 
-
-function mkDonorCard(d) {
-  const el = document.createElement("div");
-  el.className = "donor-card";
-  el.innerHTML =
-    '<div class="card-top">' +
-      '<div class="avatar">' + d.name[0] + '</div>' +
-      '<span class="blood-badge">' + d.bloodType + '</span>' +
-    '</div>' +
-    '<div class="donor-name">' + d.name + '</div>' +
-    '<div class="donor-detail">Location: ' + d.city + ', ' + d.country + '</div>' +
-    '<div class="donor-detail">Age: ' + d.age + '</div>' +
-    '<span class="avail-badge ' + (d.available ? "yes" : "no") + '">' +
-      '<span class="avail-dot"></span>' + (d.available ? "Available now" : "Not available") +
-    '</span>' +
-    '<a class="call-btn" href="tel:' + d.phone + '">' + d.phone + '</a>';
-  return el;
-}
-
-function renderDonors() {
-  const grid  = document.getElementById("donor-grid");
-  const empty = document.getElementById("empty-state");
-  const count = document.getElementById("results-count");
-
-  grid.innerHTML = "";
-
-  if (!filteredDonors.length) {
-    empty.classList.remove("hidden");
-    count.textContent = "";
-    return;
-  }
-
-  empty.classList.add("hidden");
-  count.textContent = "Showing " + filteredDonors.length + " of " + allDonors.length + " donors";
-
-  filteredDonors.forEach((d, i) => {
-    const c = mkDonorCard(d);
-    c.style.animationDelay = (i * 0.04) + "s";
-    grid.appendChild(c);
-  });
-}
-
-function applyFilters() {
-  const bt   = document.getElementById("filter-blood-type").value;
-  const co   = document.getElementById("filter-country").value;
-  const av   = document.getElementById("filter-available").value;
-  const name = document.getElementById("search-name").value.trim().toLowerCase();
-
-  filteredDonors = allDonors.filter(d => {
-    if (bt && d.bloodType !== bt)                          return false;
-    if (co && d.country   !== co)                          return false;
-    if (av === "yes" && !d.available)                      return false;
-    if (av === "no"  &&  d.available)                      return false;
-    if (name && !d.name.toLowerCase().includes(name) &&
-        !d.city.toLowerCase().includes(name) &&
-        !d.bloodType.toLowerCase().includes(name))         return false;
-    return true;
-  });
-
-  // Show results heading when a search has been done
-  const heading = document.getElementById("results-heading");
-  if (heading) {
-    heading.textContent = name
-      ? 'Showing results for: "' + name + '"'
-      : "All Donors";
-  }
-
-  sortDonors();
-  renderDonors();
-
-  // Switch to the Find Donors tab so results are visible
-  goTo("find");
-}
-
-function sortDonors() {
-  filteredDonors.sort((a, b) => {
-    let va = String(a[currentSort] || "").toLowerCase();
-    let vb = String(b[currentSort] || "").toLowerCase();
-    return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
-  });
-}
-
-// REGISTRATION 
-function handleRegister(e) {
-  e.preventDefault();
-
-  const fields = [
-    { id:"reg-name",       err:"err-name",    msg:"Full name is required" },
-    { id:"reg-age",        err:"err-age",     msg:"Age is required" },
-    { id:"reg-blood-type", err:"err-blood",   msg:"Please select a blood type" },
-    { id:"reg-country",    err:"err-country", msg:"Please select a country" },
-    { id:"reg-city",       err:"err-city",    msg:"City is required" },
-    { id:"reg-phone",      err:"err-phone",   msg:"Phone number is required" }
-  ];
-
-  let ok = true;
-  fields.forEach(f => {
-    document.getElementById(f.err).textContent = "";
-    document.getElementById(f.id).classList.remove("error");
-  });
-  fields.forEach(f => {
-    const el = document.getElementById(f.id);
-    if (!el.value.trim()) {
-      document.getElementById(f.err).textContent = f.msg;
-      el.classList.add("error");
-      ok = false;
-    }
-  });
-
-  const age = parseInt(document.getElementById("reg-age").value, 10);
-  if (!isNaN(age) && (age < 18 || age > 65)) {
-    document.getElementById("err-age").textContent = "Age must be between 18 and 65.";
-    document.getElementById("reg-age").classList.add("error");
-    ok = false;
-  }
-
-  if (!ok) return;
-
-  const donor = {
-    id:        nextId++,
-    name:      document.getElementById("reg-name").value.trim(),
-    age:       age,
-    bloodType: document.getElementById("reg-blood-type").value,
-    country:   document.getElementById("reg-country").value,
-    city:      document.getElementById("reg-city").value.trim(),
-    phone:     document.getElementById("reg-phone").value.trim(),
-    available: document.getElementById("reg-available").checked
-  };
-
-  allDonors.unshift(donor);
-  saveDonors();
-  filteredDonors = [...allDonors];
-  sortDonors();
-  renderDonors();
-  renderDashboard();
-  animateCount("stat-total",     allDonors.length);
-  animateCount("stat-available", allDonors.filter(d => d.available).length);
-
-  showFeedback("reg-feedback", "Thank you, " + donor.name + "! You are now registered as a blood donor.", "ok");
-  document.getElementById("register-form").reset();
-  document.getElementById("toggle-text").textContent = "Yes, I am available";
-  showToast("Registration successful!");
-}
-
-// EMERGENCY REQUEST 
-
-function loadEmergencies() {
-  return JSON.parse(localStorage.getItem("bl_emergency") || "[]");
-}
-
-function saveEmergencies(list) {
-  localStorage.setItem("bl_emergency", JSON.stringify(list));
-}
-
-function renderEmergencyBoard() {
-  const board = document.getElementById("emergency-board");
-  const list  = loadEmergencies();
-  board.innerHTML = "";
-
-  if (!list.length) {
-    board.innerHTML = '<div class="emg-empty">No active emergency requests right now. Post one below if someone urgently needs blood.</div>';
-    return;
-  }
-
-  [...list].reverse().forEach(r => {
-    const c = document.createElement("div");
-    c.className = "emg-card";
-    c.innerHTML =
-      '<div class="emg-blood">' + r.bloodType + '</div>' +
-      '<div class="emg-patient">' + r.patient + '</div>' +
-      '<div class="emg-detail"><strong>Location:</strong> ' + r.hospital + '</div>' +
-      '<div class="emg-detail"><strong>Units needed:</strong> ' + r.units + '</div>' +
-      (r.note ? '<div class="emg-note">' + r.note + '</div>' : '') +
-      '<a class="emg-call" href="tel:' + r.contact + '">Call: ' + r.contact + '</a>' +
-      '<div class="emg-time">' + timeAgo(r.postedAt) + '</div>';
-    board.appendChild(c);
-  });
-}
-
-function handleEmergency(e) {
-  e.preventDefault();
-
-  const fields = [
-    { id:"emg-patient",  err:"err-emg-patient",  msg:"Patient name is required" },
-    { id:"emg-blood",    err:"err-emg-blood",    msg:"Blood type is required" },
-    { id:"emg-hospital", err:"err-emg-hospital", msg:"Hospital or location is required" },
-    { id:"emg-units",    err:"err-emg-units",    msg:"Number of units is required" },
-    { id:"emg-contact",  err:"err-emg-contact",  msg:"Contact number is required" }
-  ];
-
-  let ok = true;
-  fields.forEach(f => {
-    document.getElementById(f.err).textContent = "";
-    document.getElementById(f.id).classList.remove("error");
-  });
-  fields.forEach(f => {
-    const el = document.getElementById(f.id);
-    if (!el.value.trim()) {
-      document.getElementById(f.err).textContent = f.msg;
-      el.classList.add("error");
-      ok = false;
-    }
-  });
-
-  if (!ok) return;
-
-  const req = {
-    patient:   document.getElementById("emg-patient").value.trim(),
-    bloodType: document.getElementById("emg-blood").value,
-    hospital:  document.getElementById("emg-hospital").value.trim(),
-    units:     document.getElementById("emg-units").value,
-    contact:   document.getElementById("emg-contact").value.trim(),
-    note:      document.getElementById("emg-note").value.trim(),
-    postedAt:  new Date().toISOString()
-  };
-
-  const list = loadEmergencies();
-  list.push(req);
-  saveEmergencies(list);
-  renderEmergencyBoard();
-
-  showFeedback("emg-feedback", "Emergency request posted. Donors can now see it.", "ok");
-  document.getElementById("emergency-form").reset();
-  showToast("Emergency request posted.");
-}
-
-// ELIGIBILITY CHECKER 
-
-function handleEligibility(e) {
-  e.preventDefault();
-
-  const age      = parseInt(document.getElementById("elig-age").value, 10);
-  const weight   = parseInt(document.getElementById("elig-weight").value, 10);
-  const well     = document.querySelector('input[name="elig-well"]:checked');
-  const donated  = document.querySelector('input[name="elig-donated"]:checked');
-  const tattoo   = document.querySelector('input[name="elig-tattoo"]:checked');
-  const pregnant = document.querySelector('input[name="elig-pregnant"]:checked');
-  const meds     = document.querySelector('input[name="elig-meds"]:checked');
-
-  // Make sure all questions are answered
-  const incomplete = [];
-  if (!age    || isNaN(age))    incomplete.push("Please enter your age.");
-  if (!weight || isNaN(weight)) incomplete.push("Please enter your weight.");
-  if (!well)      incomplete.push("Please answer the health question.");
-  if (!donated)   incomplete.push("Please answer the recent donation question.");
-  if (!tattoo)    incomplete.push("Please answer the tattoo question.");
-  if (!pregnant)  incomplete.push("Please answer the pregnancy question.");
-  if (!meds)      incomplete.push("Please answer the medications question.");
-
-  if (incomplete.length) {
-    showResult("warn", "Please complete all questions", "Answer every question above to get your result.", incomplete);
-    document.getElementById("elig-result").classList.remove("hidden");
-    return;
-  }
-
-  // Run through eligibility rules
-  const reasons = [];
-  if (age < 17)               reasons.push("You must be at least 17 years old to donate.");
-  if (age > 65)               reasons.push("Most blood banks require donors to be under 65. Check with your local center.");
-  if (weight < 50)            reasons.push("You must weigh at least 50 kg to donate safely.");
-  if (well.value === "no")    reasons.push("You must be feeling completely well on the day of donation.");
-  if (donated.value === "yes") reasons.push("You must wait at least 56 days between whole blood donations.");
-  if (tattoo.value === "yes") reasons.push("A tattoo or piercing within 3 months may require a waiting period.");
-  if (pregnant.value === "yes") reasons.push("You cannot donate if pregnant or if you gave birth in the last 6 months.");
-  if (meds.value === "yes")   reasons.push("Antibiotics or blood thinners may temporarily prevent donation.");
-
-  if (!reasons.length) {
-    showResult("ok", "You appear eligible to donate!", "You meet the basic criteria. Visit your nearest blood bank today.", []);
-  } else {
-    showResult("no", "You may not be eligible right now", "One or more conditions may prevent you from donating today.", reasons);
-  }
-
-  document.getElementById("elig-result").classList.remove("hidden");
-}
-
-function showResult(type, title, body, reasons) {
-  const icons = { ok: "OK", no: "X", warn: "!" };
-  const iconEl = document.getElementById("result-icon");
-  iconEl.textContent = icons[type] || "?";
-  iconEl.className   = "result-icon " + type;
-
-  const titleEl = document.getElementById("result-title");
-  titleEl.textContent = title;
-  titleEl.className   = type;
-
-  document.getElementById("result-body").textContent = body;
-
-  const ul = document.getElementById("result-reasons");
-  ul.innerHTML = "";
-  reasons.forEach(r => {
-    const li = document.createElement("li");
-    li.textContent = r;
-    ul.appendChild(li);
-  });
-}
-
-// DONATION TRACKER 
-
-function loadLog()     { return JSON.parse(localStorage.getItem("bl_log") || "[]"); }
-function saveLog(log)  { localStorage.setItem("bl_log", JSON.stringify(log)); }
-
-function renderTracker() {
-  const log    = loadLog();
-  const histEl = document.getElementById("tracker-history");
-  const dateEl = document.getElementById("eligible-date");
-  const subEl  = document.getElementById("eligible-sub");
-  const wrap   = document.getElementById("eligible-bar-wrap");
-  const fill   = document.getElementById("eligible-bar");
-  const endEl  = document.getElementById("bar-end");
-
-  histEl.innerHTML = "";
-
-  if (!log.length) {
-    histEl.innerHTML = '<p class="tracker-empty">No donations logged yet. Use the form to add your first donation.</p>';
-    dateEl.textContent = "No donations logged";
-    subEl.textContent  = "";
-    wrap.classList.add("hidden");
-    return;
-  }
-
-  // Show history sorted newest first
-  [...log].sort((a, b) => new Date(b.date) - new Date(a.date)).forEach((entry, i) => {
-    const row = document.createElement("div");
-    row.className = "history-row";
-    row.style.animationDelay = (i * 0.05) + "s";
-    row.innerHTML =
-      '<div class="avatar">' + (entry.type ? entry.type[0] : "B") + '</div>' +
-      '<div class="recent-info">' +
-        '<div class="history-type">' + entry.type + '</div>' +
-        '<div class="history-meta">' + (entry.location || "Location not specified") + '</div>' +
-      '</div>' +
-      '<div class="history-date">' + fmtDate(entry.date.replace(/-/g,"")) + '</div>' +
-      '<button class="del-btn" data-id="' + entry.id + '">x</button>';
-    histEl.appendChild(row);
-  });
-
-  // Delete entry buttons
-  histEl.querySelectorAll(".del-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const updated = log.filter(e => e.id !== parseInt(btn.dataset.id, 10));
-      saveLog(updated);
-      renderTracker();
-      showToast("Entry removed.");
-    });
-  });
-
-  // Work out the next eligible date from the most recent donation
-  const latest   = [...log].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-  const wait     = WAIT[latest.type] || 56;
-  const donDate  = new Date(latest.date);
-  const nextDate = new Date(donDate);
-  nextDate.setDate(nextDate.getDate() + wait);
-
-  const today    = new Date();
-  const diffDays = Math.ceil((nextDate - today) / 86400000);
-
-  if (diffDays <= 0) {
-    dateEl.textContent = "You are eligible now";
-    subEl.textContent  = Math.abs(diffDays) + " day(s) since eligibility";
-    setTimeout(() => fill.style.width = "100%", 100);
-  } else {
-    dateEl.textContent = nextDate.toLocaleDateString("en-US", { month:"long", day:"numeric", year:"numeric" });
-    subEl.textContent  = diffDays + " day" + (diffDays !== 1 ? "s" : "") + " from today";
-    const pct = Math.min(100, Math.round(((wait - diffDays) / wait) * 100));
-    setTimeout(() => fill.style.width = pct + "%", 100);
-  }
-
-  endEl.textContent = wait + " days";
-  wrap.classList.remove("hidden");
-}
-
-function handleTracker(e) {
-  e.preventDefault();
-
-  const dateEl = document.getElementById("track-date");
-  const errEl  = document.getElementById("err-track-date");
-  errEl.textContent = "";
-  dateEl.classList.remove("error");
-
-  if (!dateEl.value) {
-    errEl.textContent = "Please select the donation date.";
-    dateEl.classList.add("error");
-    return;
-  }
-
-  if (new Date(dateEl.value) > new Date()) {
-    errEl.textContent = "Donation date cannot be in the future.";
-    dateEl.classList.add("error");
-    return;
-  }
-
-  const entry = {
-    id:       Date.now(),
-    date:     dateEl.value,
-    type:     document.getElementById("track-type").value,
-    location: document.getElementById("track-location").value.trim()
-  };
-
-  const log = loadLog();
-  log.push(entry);
-  saveLog(log);
-  renderTracker();
-
-  showFeedback("track-feedback", "Donation logged. Your next eligible date has been updated.", "ok");
-  document.getElementById("tracker-form").reset();
-  showToast("Donation logged.");
-}
-
-// COMPATIBILITY CARDS 
-
+// ── COMPATIBILITY ─────────────────────────────────────────
+// Renders 8 blood type cards — runs on init, visible when page opens
 function renderCompat() {
-  const grid = document.getElementById("compatibility-grid");
+  const grid = el("compat-grid");
+  if (!grid) return;
   grid.innerHTML = "";
-  COMPAT.forEach(item => {
+  BLOOD_COMPAT.forEach(item => {
     const c = document.createElement("div");
     c.className = "compat-card";
     c.innerHTML =
@@ -635,158 +228,308 @@ function renderCompat() {
   });
 }
 
-// NAVIGATION 
-function goTo(pageId) {
-  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
-  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-  document.querySelectorAll('[data-page="' + pageId + '"]').forEach(el => el.classList.add("active"));
-
-  const page = document.getElementById("page-" + pageId);
-  if (page) page.classList.add("active");
-
-  window.scrollTo({ top: 0, behavior: "smooth" });
+// ── BLOOD REQUESTS ─────────────────────────────────────────
+function renderRequests() {
+  const board = el("requests-board");
+  if (!board) return;
+  const requests = getRequests();
+  board.innerHTML = "";
+  if (!requests.length) {
+    board.innerHTML = '<p class="req-empty">No active blood requests. Post one below if you urgently need blood.</p>';
+    return;
+  }
+  [...requests].reverse().forEach(r => {
+    const c = document.createElement("div");
+    c.className = "req-card";
+    c.innerHTML =
+      '<div class="req-top"><span class="req-blood">' + r.bloodType + '</span><span class="req-time">' + timeAgo(r.postedAt) + '</span></div>' +
+      '<div class="req-patient">' + r.patient + '</div>' +
+      '<div class="req-detail">Hospital: ' + r.hospital + '</div>' +
+      '<div class="req-detail">Units needed: ' + r.units + '</div>' +
+      (r.note ? '<div class="req-note">' + r.note + '</div>' : '') +
+      '<a class="req-call" href="tel:' + r.contact + '">Call to help: ' + r.contact + '</a>';
+    board.appendChild(c);
+  });
 }
 
-function setupNav() {
-  document.querySelectorAll("[data-page]").forEach(el => {
-    el.addEventListener("click", e => {
-      e.preventDefault();
-      const pg = el.dataset.page;
-      if (pg) goTo(pg);
+function handlePostRequest(e) {
+  e.preventDefault();
+  const patient  = el("req-patient").value.trim();
+  const blood    = el("req-blood").value;
+  const hospital = el("req-hospital").value.trim();
+  const units    = el("req-units").value;
+  const contact  = el("req-contact").value.trim();
+  const note     = el("req-note").value.trim();
+  if (!patient || !blood || !hospital || !units || !contact) { showToast("Please fill in all required fields."); return; }
+  const list = getRequests();
+  list.push({ patient, bloodType:blood, hospital, units, contact, note, postedAt:new Date().toISOString() });
+  saveRequests(list);
+  renderRequests();
+  showFeedback("req-feedback", "Request posted. Donors can now see it and call you.", "ok");
+  document.getElementById("request-form").reset();
+}
+
+// ── REGISTER DONOR ─────────────────────────────────────────
+function handleRegister(e) {
+  e.preventDefault();
+  const checks = [
+    {id:"reg-name",       err:"err-name",    msg:"Full name is required."},
+    {id:"reg-blood-type", err:"err-blood",   msg:"Please select a blood type."},
+    {id:"reg-country",    err:"err-country", msg:"Please select your country."},
+    {id:"reg-city",       err:"err-city",    msg:"City is required."},
+    {id:"reg-phone",      err:"err-phone",   msg:"Phone number is required."}
+  ];
+  checks.forEach(c => { const e = el(c.err); if(e) e.textContent = ""; el(c.id).classList.remove("error"); });
+  let ok = true;
+  checks.forEach(c => {
+    if (!el(c.id).value.trim()) { el(c.err).textContent = c.msg; el(c.id).classList.add("error"); ok = false; }
+  });
+  const age = parseInt(el("reg-age").value, 10);
+  if (isNaN(age) || age < 18 || age > 65) { el("err-age").textContent = "Age must be 18–65."; el("reg-age").classList.add("error"); ok = false; }
+  if (!ok) return;
+  addDonor({
+    name:      el("reg-name").value.trim(),
+    age,
+    bloodType: el("reg-blood-type").value,
+    country:   el("reg-country").value,
+    city:      el("reg-city").value.trim(),
+    phone:     el("reg-phone").value.trim(),
+    available: el("reg-available").checked
+  });
+  renderDonors(); updateStats();
+  showFeedback("reg-feedback", "You are now registered as a blood donor. Thank you!", "ok");
+  document.getElementById("register-form").reset();
+  el("toggle-text").textContent = "Yes, I am available";
+  showToast("Registration successful!");
+}
+
+// ── ELIGIBILITY ────────────────────────────────────────────
+function handleEligibility(e) {
+  e.preventDefault();
+  const age      = parseInt(el("elig-age").value, 10);
+  const weight   = parseInt(el("elig-weight").value, 10);
+  const well     = document.querySelector('input[name="elig-well"]:checked');
+  const donated  = document.querySelector('input[name="elig-donated"]:checked');
+  const tattoo   = document.querySelector('input[name="elig-tattoo"]:checked');
+  const pregnant = document.querySelector('input[name="elig-pregnant"]:checked');
+  const meds     = document.querySelector('input[name="elig-meds"]:checked');
+  if (!well || !donated || !tattoo || !pregnant || !meds || !age || !weight) { showToast("Please answer all questions."); return; }
+  const reasons = [];
+  if (age < 17)                reasons.push("You must be at least 17 years old.");
+  if (age > 65)                reasons.push("Most centers require donors under 65.");
+  if (weight < 50)             reasons.push("You must weigh at least 50 kg.");
+  if (well.value === "no")     reasons.push("You must feel completely well on donation day.");
+  if (donated.value === "yes") reasons.push("Wait at least 56 days between whole blood donations.");
+  if (tattoo.value === "yes")  reasons.push("A recent tattoo or piercing may require a waiting period.");
+  if (pregnant.value === "yes")reasons.push("Cannot donate while pregnant or within 6 months of giving birth.");
+  if (meds.value === "yes")    reasons.push("Antibiotics or blood thinners may prevent donation.");
+  const eligible = !reasons.length;
+  const box = el("result-box");
+  box.className = "result-box " + (eligible ? "ok" : "no");
+  el("result-icon").textContent  = eligible ? "✓" : "✗";
+  el("result-title").textContent = eligible ? "You appear eligible to donate!" : "You may not be eligible right now";
+  el("result-title").className   = eligible ? "ok" : "no";
+  el("result-body").textContent  = eligible
+    ? "You meet the basic criteria. Visit your nearest blood bank today."
+    : "One or more conditions may prevent you from donating today.";
+  const ul = el("result-reasons");
+  ul.innerHTML = "";
+  reasons.forEach(r => { const li = document.createElement("li"); li.textContent = r; ul.appendChild(li); });
+  el("elig-result").classList.remove("hidden");
+}
+
+// ── TRACKER ────────────────────────────────────────────────
+function renderTracker() {
+  const log    = getDonationLog();
+  const histEl = el("tracker-history");
+  const dateEl = el("eligible-date");
+  const subEl  = el("eligible-sub");
+  const wrap   = el("bar-wrap");
+  if (!histEl) return;
+  histEl.innerHTML = "";
+  if (!log.length) {
+    histEl.innerHTML = '<p class="tracker-empty">No donations logged yet.</p>';
+    if (dateEl) dateEl.textContent = "No donations logged";
+    if (subEl)  subEl.textContent  = "";
+    if (wrap)   wrap.classList.add("hidden");
+    return;
+  }
+  [...log].sort((a,b) => new Date(b.date) - new Date(a.date)).forEach((entry, i) => {
+    const row = document.createElement("div");
+    row.className = "history-row";
+    row.style.animationDelay = (i * 0.05) + "s";
+    row.innerHTML =
+      '<div class="h-avatar">' + entry.type[0] + '</div>' +
+      '<div class="h-info"><div class="h-type">' + entry.type + '</div>' +
+      '<div class="h-loc">' + (entry.location || "Location not specified") + '</div></div>' +
+      '<div class="h-date">' + new Date(entry.date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) + '</div>' +
+      '<button class="del-btn" data-id="' + entry.id + '">×</button>';
+    histEl.appendChild(row);
+  });
+  histEl.querySelectorAll(".del-btn").forEach(b =>
+    b.addEventListener("click", () => { saveDonationLog(getDonationLog().filter(e => e.id !== parseInt(b.dataset.id))); renderTracker(); }));
+  const latest   = [...log].sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+  const wait     = WAIT_DAYS[latest.type] || 56;
+  const nextDate = new Date(latest.date);
+  nextDate.setDate(nextDate.getDate() + wait);
+  const diff = Math.ceil((nextDate - new Date()) / 86400000);
+  if (dateEl) dateEl.textContent = diff <= 0 ? "You are eligible now" : nextDate.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
+  if (subEl)  subEl.textContent  = diff <= 0 ? Math.abs(diff) + " days since eligibility" : diff + " days remaining";
+  if (wrap) {
+    const pct  = Math.min(100, Math.round(((wait - Math.max(diff,0)) / wait) * 100));
+    const fill = el("prog-fill");
+    const endEl = el("bar-end");
+    setTimeout(() => { if (fill) fill.style.width = pct + "%"; }, 100);
+    if (endEl) endEl.textContent = wait + " days";
+    wrap.classList.remove("hidden");
+  }
+}
+
+function handleTracker(e) {
+  e.preventDefault();
+  const dateEl = el("track-date");
+  if (!dateEl.value) { showToast("Please select the donation date."); return; }
+  if (new Date(dateEl.value) > new Date()) { showToast("Date cannot be in the future."); return; }
+  const log = getDonationLog();
+  log.push({ id:Date.now(), date:dateEl.value, type:el("track-type").value, location:el("track-location").value.trim() });
+  saveDonationLog(log);
+  renderTracker();
+  showFeedback("track-feedback", "Donation logged. Next eligible date updated.", "ok");
+  document.getElementById("tracker-form").reset();
+}
+
+// ── ADMIN TABS ─────────────────────────────────────────────
+function setupAdminTabs() {
+  document.querySelectorAll(".admin-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".admin-tab").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".admin-section").forEach(s => s.classList.remove("active"));
+      btn.classList.add("active");
+      const sec = el("admin-sec-" + btn.dataset.tab);
+      if (sec) sec.classList.add("active");
     });
   });
 }
 
-// HELPERS 
-
+// ── HELPERS ────────────────────────────────────────────────
 function showToast(msg) {
-  const t = document.getElementById("toast");
-  document.getElementById("toast-msg").textContent = msg;
-  t.classList.remove("hidden");
-  t.classList.add("show");
-  setTimeout(() => {
-    t.classList.remove("show");
-    setTimeout(() => t.classList.add("hidden"), 250);
-  }, 3000);
+  const t = el("toast");
+  el("toast-msg").textContent = msg;
+  t.classList.remove("hidden"); t.classList.add("show");
+  setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.classList.add("hidden"), 250); }, 3200);
 }
-
 function showFeedback(id, msg, type) {
-  const el = document.getElementById(id);
-  el.textContent = msg;
-  el.className   = "feedback " + type;
-  el.classList.remove("hidden");
-  setTimeout(() => el.classList.add("hidden"), 6000);
+  const e = el(id); if (!e) return;
+  e.textContent = msg; e.className = "feedback " + type; e.classList.remove("hidden");
+  setTimeout(() => e.classList.add("hidden"), 6000);
 }
 
-function cut(text, max) {
-  return text.length <= max ? text : text.slice(0, max).trim() + "...";
-}
+// ── GLOBAL CLICK HANDLER ───────────────────────────────────
+document.addEventListener("click", e => {
+  const t      = e.target.closest("[data-action]") || e.target;
+  const action = t.dataset.action;
+  const pageEl = e.target.closest("[data-page]");
+  const page   = pageEl ? pageEl.dataset.page : null;
 
-function fmtDate(str) {
-  if (!str || str.length < 8) return str;
-  const d = new Date(str.slice(0,4) + "-" + str.slice(4,6) + "-" + str.slice(6,8));
-  return d.toLocaleDateString("en-US", { year:"numeric", month:"short", day:"numeric" });
-}
+  if (action === "open-auth") { e.preventDefault(); openAuthModal(); return; }
+  if (page) {
+    e.preventDefault();
+    if (page.startsWith("admin") && !isAdmin()) { showToast("Admin access only."); return; }
+    showPage(page);
+  }
+});
 
-function timeAgo(iso) {
-  const mins = Math.floor((Date.now() - new Date(iso)) / 60000);
-  if (mins < 1)  return "Just now";
-  if (mins < 60) return mins + " minute" + (mins !== 1 ? "s" : "") + " ago";
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24)  return hrs + " hour" + (hrs !== 1 ? "s" : "") + " ago";
-  return Math.floor(hrs / 24) + " days ago";
-}
-
-function animateCount(id, target) {
-  const el   = document.getElementById(id);
-  const step = Math.max(1, Math.floor(target / 25));
-  let n = 0;
-  const iv = setInterval(() => {
-    n = Math.min(n + step, target);
-    el.textContent = n;
-    if (n >= target) clearInterval(iv);
-  }, 40);
-}
-
-// INIT 
-
+// ── INIT ───────────────────────────────────────────────────
 async function init() {
-  loadDonors();
-  filteredDonors = [...allDonors];
+  // 1. Apply theme before anything renders
+  setupTheme();
 
-  setupNav();
-  await loadCountries();
+  // 2. Load session (restores login state)
+  loadSession();
 
+  // 3. Load donor data — getDonors() saves seeds on first visit
+  initDonors();
+
+  // 4. Set up UI components
+  setupAuthModal();
+  setupAdminTabs();
+  updateHeader();
+
+  // 5. Update stats immediately with loaded donor data
+  updateStats();
+
+  // 6. Render all static sections (compat, requests, tracker, donors)
   renderCompat();
-  renderDashboard();
-  renderEmergencyBoard();
+  renderRequests();
   renderTracker();
-  sortDonors();
   renderDonors();
 
-  animateCount("stat-total",     allDonors.length);
-  animateCount("stat-available", allDonors.filter(d => d.available).length);
+  // 7. Render admin panel if already logged in as admin
+  if (isAdmin()) renderAdminPanel();
 
-  // Global search bar triggers filter and navigates to Find Donors
-  document.getElementById("apply-filters").addEventListener("click", applyFilters);
-  document.getElementById("search-name").addEventListener("keydown", e => {
-    if (e.key === "Enter") applyFilters();
+  // 8. Load countries — fills dropdowns (fallback applied instantly, API replaces it)
+  loadCountries(); // intentionally NOT awaited so rest of init is not blocked
+
+  // 9. Global search
+  el("global-search-btn").addEventListener("click", () => {
+    const val = el("global-search").value.trim();
+    el("search-name").value = val;
+    showPage("find");
+    applyDonorFilters();
   });
+  el("global-search").addEventListener("keydown", e => { if (e.key === "Enter") el("global-search-btn").click(); });
 
-  // Find Donors filter and sort
-  document.getElementById("clear-filters").addEventListener("click", () => {
-    ["filter-blood-type","filter-country","filter-available"].forEach(id => document.getElementById(id).value = "");
-    document.getElementById("search-name").value = "";
-    document.getElementById("results-heading").textContent = "All Donors";
-    filteredDonors = [...allDonors];
-    sortDonors();
-    renderDonors();
+  // 10. Find donors filters
+  el("apply-filters").addEventListener("click", applyDonorFilters);
+  el("clear-filters").addEventListener("click", () => {
+    ["filter-blood-type","filter-country","filter-available","search-name"].forEach(id => { const e = el(id); if (e) e.value = ""; });
+    filteredDonors = [...allDonors]; sortDonors(); renderDonors();
   });
+  ["filter-blood-type","filter-country","filter-available"].forEach(id => {
+    const e = el(id); if (e) e.addEventListener("change", applyDonorFilters);
+  });
+  el("search-name").addEventListener("keydown", e => { if (e.key === "Enter") applyDonorFilters(); });
 
-  document.querySelectorAll(".chip").forEach(btn => {
+  // 11. Sort chips
+  document.querySelectorAll(".sort-chip").forEach(btn => {
     btn.addEventListener("click", () => {
       const s = btn.dataset.sort;
-      if (s === currentSort) sortAsc = !sortAsc;
-      else { currentSort = s; sortAsc = true; }
-      document.querySelectorAll(".chip").forEach(b => b.classList.remove("active"));
+      if (s === currentSort) sortAsc = !sortAsc; else { currentSort = s; sortAsc = true; }
+      document.querySelectorAll(".sort-chip").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
-      sortDonors();
-      renderDonors();
+      sortDonors(); renderDonors();
     });
   });
 
-  //  auto-filter in case dropdowns change on the find page
-  ["filter-blood-type","filter-country","filter-available"].forEach(id => {
-    document.getElementById(id).addEventListener("change", applyFilters);
+  // 12. Register form
+  el("register-form").addEventListener("submit", handleRegister);
+  el("reg-available").addEventListener("change", function() {
+    el("toggle-text").textContent = this.checked ? "Yes, I am available" : "No, not right now";
   });
 
-  // Registration form
-  document.getElementById("register-form").addEventListener("submit", handleRegister);
-  document.getElementById("reg-available").addEventListener("change", function() {
-    document.getElementById("toggle-text").textContent = this.checked ? "Yes, I am available" : "No, not right now";
-  });
+  // 13. Blood requests
+  el("request-form").addEventListener("submit", handlePostRequest);
 
-  // Emergency form
-  document.getElementById("emergency-form").addEventListener("submit", handleEmergency);
-
-  // Eligibility checker
-  document.getElementById("eligibility-form").addEventListener("submit", handleEligibility);
-  document.getElementById("elig-reset").addEventListener("click", () => {
-    document.getElementById("elig-result").classList.add("hidden");
+  // 14. Eligibility
+  el("eligibility-form").addEventListener("submit", handleEligibility);
+  el("elig-reset").addEventListener("click", () => {
+    el("elig-result").classList.add("hidden");
     document.getElementById("eligibility-form").reset();
   });
 
-  // Donation tracker
-  document.getElementById("tracker-form").addEventListener("submit", handleTracker);
-  document.getElementById("track-date").max = new Date().toISOString().split("T")[0];
+  // 15. Tracker
+  el("tracker-form").addEventListener("submit", handleTracker);
+  el("track-date").max = new Date().toISOString().split("T")[0];
 
-  // FDA safety search
-  document.getElementById("fda-btn").addEventListener("click", () => {
-    fetchFDA(document.getElementById("fda-input").value);
-  });
-  document.getElementById("fda-input").addEventListener("keydown", e => {
-    if (e.key === "Enter") fetchFDA(document.getElementById("fda-input").value);
-  });
+  // 16. FDA
+  el("fda-search-btn").addEventListener("click", () => fetchFDA(el("fda-keyword").value));
+  el("fda-keyword").addEventListener("keydown", e => { if (e.key === "Enter") fetchFDA(el("fda-keyword").value); });
+
+  // 17. Admin forms
+  el("admin-add-form").addEventListener("submit", handleAdminAddDonor);
+  el("edit-save").addEventListener("click", saveEditDonor);
+  el("edit-cancel").addEventListener("click", () => el("edit-modal").classList.add("hidden"));
+  el("edit-modal").addEventListener("click", e => { if (e.target === el("edit-modal")) el("edit-modal").classList.add("hidden"); });
 }
 
 document.addEventListener("DOMContentLoaded", init);
