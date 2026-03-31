@@ -1,8 +1,8 @@
-# 🩸 BloodLink — Blood Donor Finder
+#  BloodLink — Blood Donor Finder
 
 BloodLink is a web app I built to help people find blood donors quickly. The idea is simple — when someone needs blood urgently, they should be able to find a compatible donor nearby without going through a hospital system. Visitors can search donors by blood type and location, post urgent requests, and donors can register themselves directly on the platform.
 
-## 🎥 Demo Video
+## Demo Video
 
 https://www.loom.com/share/b89c2b1557ac4ccb82614b3afe48d05b
 
@@ -163,24 +163,24 @@ Output alternates between `7030-web-01` and `7030-web-02` confirming round-robin
 
 ```
 blood-donor-finder/
-├── index.html            All pages in one HTML file
-├── config.js             OpenFDA API key (gitignored)
-├── config.example.js     Safe placeholder for GitHub
-├── .gitignore            Excludes config.js
-├── README.md             This file
+├── index.html            
+├── config.js         
+├── config.example.js     
+├── .gitignore            
+├── README.md      
 ├── css/
-│   └── style.css         All styles — light/dark theme, responsive
+│   └── style.css         
 └── js/
-    ├── data.js           Constants, seed donors, localStorage helpers
-    ├── auth.js           User accounts, admin login, session management
-    ├── donors.js         Donor state, filtering, sorting, card rendering
-    ├── admin.js          Admin panel — records table, edit/delete/add
-    └── app.js            Navigation, API calls, event listeners, init
-```
+    ├── data.js           
+    ├── auth.js          
+    ├── donors.js         
+    ├── admin.js          
+    └── app.js            
+`
 
 ---
 
-## Challenges I Faced and their solutions
+## Challenges and solutions
 
 **Variables not shared across JS files** — `const` and `let` are scoped to their script block and invisible to other files. Switching shared globals to `var` fixed the blank compatibility guide and missing donor data.
 
